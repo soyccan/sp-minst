@@ -1,5 +1,11 @@
 #include "hw4.h"
 
+#define NUM_TRAIN_INPUT 60000
+#define NUM_TEST_INPUT 10000
+#define INPUT_ELEM_SIZE 784
+#define MAX_LABEL 10
+#define MAX_THREAD 100
+
 static off_t getsize(int fd) {
     struct stat s;
     G(fstat(fd, &s));
@@ -11,58 +17,40 @@ static const uchar* open_large_readonly(const char* filename) {
     int fd;
 
     G(fd = open(filename, O_RDONLY));
-    G(pa = mmap(NULL, getsize(fd), PROT_READ, MAP_SHARED, fd, 0));
+
+    pa = mmap(NULL, getsize(fd), PROT_READ, MAP_SHARED, fd, 0);
+    if (pa == MAP_FAILED)
+        G(-1);
 
     return pa;
 }
 
+typedef struct {
+    const double* X;
+    const double* Y;
+    double* Z;
+    size_t start_row;
+    size_t end_row;
+} matrix_mul_param;
+
 static void matrix_mul(
-        const uchar X[][784],
-        const uchar Y[784][10],
-        uchar Z[][10],
+        const double X[][INPUT_ELEM_SIZE],
+        const double Y[INPUT_ELEM_SIZE][MAX_LABEL],
+        double Z[][MAX_LABEL],
         size_t start_row,
         size_t end_row) {
     /* Z := X * Y */
 
-    assert(0 <= start_row && start_row <= end_row && end_row <= 60000);
+    assert(0 <= start_row && start_row <= end_row && end_row <= NUM_TRAIN_INPUT);
 
-    for (size_t i = start_row; i < end_row; ++i) {
-        for (size_t j = 0; j < 10; ++j) {
+    FOR(i, start_row, end_row) {
+        FOR(j, 0, MAX_LABEL) {
             Z[i][j] = 0;
-            for (size_t k = 0; k < 784; ++k) {
+            FOR(k, 0, INPUT_ELEM_SIZE) {
                 Z[i][j] += X[i][k] * Y[k][j];
             }
         }
     }
-}
-
-static void matrix_mul_transposed(
-        const uchar X[][784],
-        const uchar Y[][10],
-        uchar Z[784][10],
-        size_t num_row) {
-    /* Z := X^T * Y */
-
-    assert(num_row == 600000);
-
-    for (size_t i = 0; i < 784; ++i) {
-        for (size_t j = 0; j < 10; ++j) {
-            Z[i][j] = 0;
-            for (size_t k = 0; k < num_row; ++k) {
-                Z[i][j] = X[k][i] * Y[k][j];
-            }
-        }
-    }
-}
-
-static void softmax(const uchar vector[], uchar dest[], size_t dimension) {
-    double sum = 0;
-
-    for (size_t i = 0; i < dimension; ++i)
-        sum += exp(vector[i]);
-
-    for (size_t i = 0; i < dimension; ++i)
-        dest[i] = exp(vector[i]) / sum;
 }
 
 static void* matrix_mul_thread(void* ptr) {
@@ -71,65 +59,131 @@ static void* matrix_mul_thread(void* ptr) {
     return NULL;
 }
 
-const int MAX_THREAD = 100;
-pthread_t threads[100];
+static void matrix_mul_transposed(
+        const double X[][INPUT_ELEM_SIZE],
+        const double Y[][MAX_LABEL],
+        double Z[INPUT_ELEM_SIZE][MAX_LABEL],
+        size_t num_row) {
+    /* Z := X^T * Y */
 
-// input
+    assert(num_row == NUM_TRAIN_INPUT);
+
+    FOR(i, 0, INPUT_ELEM_SIZE) {
+        FOR(j, 0, MAX_LABEL) {
+            Z[i][j] = 0;
+            FOR(k, 0, num_row) {
+                Z[i][j] += X[k][i] * Y[k][j];
+            }
+        }
+    }
+}
+
+static void softmax(const double vector[], double dest[], size_t dimension) {
+    double mx = -INFINITY;
+    double sum = 0;
+
+    FOR(i, 0, dimension)
+        if (mx < vector[i])
+            mx = vector[i];
+
+    FOR(i, 0, dimension)
+        sum += exp(vector[i] - mx);
+
+    FOR(i, 0, dimension)
+        dest[i] = exp(vector[i] - mx) / sum;
+}
+
+pthread_t threads[MAX_THREAD];
+
+// training input
 int num_thread;
-int num_iteration = 100;
+int num_iteration = 2;
 double learning_rate = 0.8;
-uchar x_train[60000][784]; // images for training
-uchar y_train[60000][10]; // labels for training
+double x_train[NUM_TRAIN_INPUT][INPUT_ELEM_SIZE]; // images for training
+double y_train[NUM_TRAIN_INPUT][MAX_LABEL]; // labels for training
 
 // testing input
-uchar x_test[10000][784]; // images for testing
+double x_test[NUM_TEST_INPUT][INPUT_ELEM_SIZE]; // images for testing
 
-// output
-uchar weight[784][10];
-uchar weight_grad[784][10];
-uchar y_hat[60000][10];
+// trained data
+double weight[INPUT_ELEM_SIZE][MAX_LABEL];
+double weight_grad[INPUT_ELEM_SIZE][MAX_LABEL];
+double y_hat[NUM_TRAIN_INPUT][MAX_LABEL]; // predicted label
 
 void train() {
-    for (int rnd = 0; rnd < num_iteration; ++rnd) {
-        LOG("rnd=%d");
+    LOG("train");
 
-        static uchar tmp[60000][10];
+    // optional
+    FOR(i, 0, INPUT_ELEM_SIZE) {
+        FOR(j, 0, MAX_LABEL) {
+            weight[i][j] = 0.5;
+        }
+    }
 
-        size_t num_row_a_round = 60000 / num_thread;
-        for (size_t start_row = 0; start_row < 60000; start_row += num_row_a_round) {
+    FOR(rnd, 0, num_iteration) {
+        LOG("train round %d", rnd);
+
+        static double tmp[NUM_TRAIN_INPUT][MAX_LABEL];
+
+        size_t num_row_a_round = NUM_TRAIN_INPUT / num_thread;
+        size_t start_row;
+        for (start_row = 0;
+                start_row + num_row_a_round < NUM_TRAIN_INPUT;
+                start_row += num_row_a_round) {
+
             matrix_mul(x_train, weight, tmp, start_row, start_row + num_row_a_round);
         }
+        matrix_mul(x_train, weight, tmp, start_row, NUM_TRAIN_INPUT);
 
-        for (int j = 0; j < 60000; ++j) {
-            softmax(tmp[j], y_hat[j], 10);
+        LOG("x_train * weight");
+        PRINTARR(tmp, 10, 10);
+        LOG("");
+
+        FOR(i, 0, NUM_TRAIN_INPUT) {
+            softmax(tmp[i], y_hat[i], MAX_LABEL);
         }
 
-        for (int i = 0; i < 784; ++i) {
-            for (int j = 0; j < 10; ++j) {
+        LOG("y_hat");
+        PRINTARR(y_hat, 10, 10);
+        LOG("");
+
+        FOR(i, 0, INPUT_ELEM_SIZE) {
+            FOR(j, 0, MAX_LABEL) {
                 weight[i][j] -= learning_rate * weight_grad[i][j];
             }
         }
 
-        for (int i = 0; i < 60000; ++i) {
-            for (int j = 0; j < 10; ++j) {
+        LOG("weight");
+        PRINTARR(weight, 10, 10);
+        LOG("");
+
+        FOR(i, 0, NUM_TRAIN_INPUT) {
+            FOR(j, 0, MAX_LABEL) {
                 tmp[i][j] = y_hat[i][j] - y_train[i][j];
             }
         }
-        matrix_mul_transposed(x_train, tmp, weight_grad, 60000);
+
+        matrix_mul_transposed(x_train, tmp, weight_grad, NUM_TRAIN_INPUT);
+
+        LOG("weight_grad");
+        PRINTARR(weight_grad, 10, 10);
+        LOG("");
     }
 }
 
 void test() {
-    static uchar tmp[10000][10];
+    LOG("test");
 
-    matrix_mul(x_test, weight, tmp, 0, 10000);
+    static double tmp[NUM_TEST_INPUT][MAX_LABEL];
+
+    matrix_mul(x_test, weight, tmp, 0, NUM_TEST_INPUT);
 
     FILE* f = fopen("result.csv", "w");
     fprintf(f, "id,label\n");
 
-    for (int i = 0; i < 10000; ++i) {
+    FOR(i, 0, NUM_TEST_INPUT) {
         int label = -1;
-        for (int j = 0; j < 10; ++j)
+        FOR(j, 0, MAX_LABEL)
             if (tmp[i][j])
                 label = j;
 
@@ -141,19 +195,39 @@ void test() {
 }
 
 int main(int argc, const char** argv) {
-    if (argc < 5)
-        USAGE();
+    if (argc < 5) {
+usage:
+        fprintf(stderr,
+                "Usage: %s [X_train] [y_train] [X_test] [number of threads]\n",
+                argv[0]);
+        exit(123);
+    }
 
-    uchar* x_train_file = open_large_readonly(argv[1]);
-    uchar* y_train_file = open_large_readonly(argv[2]);
-    uchar* x_test_file  = open_large_readonly(argv[3]);
 
-    num_thread = strtol(argv[4], NULL, 10);
-    if (errno != 0) USAGE();
+    const uchar* x_train_file = open_large_readonly(argv[1]);
+    const uchar* y_train_file = open_large_readonly(argv[2]);
+    const uchar* x_test_file  = open_large_readonly(argv[3]);
 
-    memcpy(x_train, x_train_file, sizeof x_train);
-    memcpy(y_train, y_train_file, sizeof y_train);
-    memcpy(x_test , x_test_file , sizeof x_test);
+    num_thread = strtol(argv[4], NULL, MAX_LABEL);
+    if (errno != 0) goto usage;
+
+
+    FOR(i, 0, NUM_TRAIN_INPUT) {
+        FOR(j, 0, INPUT_ELEM_SIZE) {
+            x_train[i][j] = x_train_file[i * INPUT_ELEM_SIZE + j];
+        }
+    }
+
+    FOR(i, 0, NUM_TRAIN_INPUT) {
+        assert(y_train_file[i] < MAX_LABEL);
+        y_train[i][ y_train_file[i] ] = 1;
+    }
+
+    FOR(i, 0, NUM_TEST_INPUT) {
+        FOR(j, 0, INPUT_ELEM_SIZE) {
+            x_test[i][j] = x_test_file[i * INPUT_ELEM_SIZE + j];
+        }
+    }
 
     train();
     test();

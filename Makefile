@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall -Wextra -Wconversion -std=gnu18 -lm -lpthread
+CFLAGS=-Wall -Wextra -Wconversion -std=c18 -lm -lpthread
 SRC=hw4.c
 
 all: release
