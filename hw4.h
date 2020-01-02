@@ -11,12 +11,17 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 
-// guard for syscall error
-#define G(expr) if ((expr) < 0) { perror(#expr); exit(221); }
 
 #define FOR(i, start, end) for (size_t i = start; i < end; ++i)
 
-#define PRINTARR(arr, r, c) \
+
+#ifdef DEBUG
+# define LOG(format, ...) fprintf(stderr, format "\n", ##__VA_ARGS__)
+
+// guard for syscall error
+# define G(expr) if ((expr) < 0) { perror(#expr); exit(221); }
+
+# define PRINTARR(arr, r, c) \
     for (size_t i = 0; i < r; ++i) {\
         for (size_t j = 0; j < c; ++j) {\
             fprintf(stderr, "%lf ", arr[i][j]);\
@@ -24,10 +29,10 @@
         fprintf(stderr, "\n");\
     }
 
-#ifdef DEBUG
-# define LOG(format, ...) fprintf(stderr, format "\n", ##__VA_ARGS__)
 #else
 # define LOG(...)
+# define G(expr) (expr)
+# define PRINTARR(...)
 #endif
 
 typedef unsigned char uchar;
