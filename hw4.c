@@ -40,6 +40,7 @@ static void matrix_mul(
         size_t start_row,
         size_t end_row) {
     /* Z := X * Y */
+    LOG("matrix mul %d ~ %d", start_row, end_row);
 
     assert(0 <= start_row && start_row <= end_row && end_row <= NUM_TRAIN_INPUT);
 
@@ -93,11 +94,12 @@ static void softmax(const double vector[], double dest[], size_t dimension) {
         dest[i] = exp(vector[i] - mx) / sum;
 }
 
-pthread_t threads[MAX_THREAD];
+pthread_t thread[MAX_THREAD];
+matrix_mul_param thread_param[MAX_THREAD];
 
 // training input
 int num_thread;
-int num_iteration = 2;
+int num_iteration = 100;
 double learning_rate = 0.8;
 double x_train[NUM_TRAIN_INPUT][INPUT_ELEM_SIZE]; // images for training
 double y_train[NUM_TRAIN_INPUT][MAX_LABEL]; // labels for training
@@ -110,7 +112,7 @@ double weight[INPUT_ELEM_SIZE][MAX_LABEL];
 double weight_grad[INPUT_ELEM_SIZE][MAX_LABEL];
 double y_hat[NUM_TRAIN_INPUT][MAX_LABEL]; // predicted label
 
-void train() {
+static void train() {
     LOG("train");
 
     // optional
@@ -125,18 +127,33 @@ void train() {
 
         static double tmp[NUM_TRAIN_INPUT][MAX_LABEL];
 
-        size_t num_row_a_round = NUM_TRAIN_INPUT / num_thread;
-        size_t start_row;
-        for (start_row = 0;
-                start_row + num_row_a_round < NUM_TRAIN_INPUT;
-                start_row += num_row_a_round) {
+        size_t num_row_per_thread = NUM_TRAIN_INPUT / (num_thread - 1);
+        size_t start_row = 0;
+        FOR(i, 0, num_thread) {
 
-            matrix_mul(x_train, weight, tmp, start_row, start_row + num_row_a_round);
+//             matrix_mul(x_train, weight, tmp, start_row, start_row + num_row_a_round);
+//
+
+            thread_param[i].X = x_train;
+            thread_param[i].Y = weight;
+            thread_param[i].Z = tmp;
+            thread_param[i].start_row = start_row;
+            thread_param[i].end_row = start_row + num_row_per_thread;
+
+            if (thread_param[i].end_row > NUM_TRAIN_INPUT)
+                thread_param[i].end_row = NUM_TRAIN_INPUT;
+
+            pthread_create(&thread[i], NULL, matrix_mul_thread, &thread_param[i]);
+
+            start_row += num_row_per_thread;
         }
-        matrix_mul(x_train, weight, tmp, start_row, NUM_TRAIN_INPUT);
+//         pthread_exit(NULL); // Note: main theard quits also ?
+        FOR(i, 0, num_thread) {
+            pthread_join(thread[i], NULL);
+        }
 
         LOG("x_train * weight");
-        PRINTARR(tmp, 10, 10);
+        PRINTARR(tmp, 100, 10);
         LOG("");
 
         FOR(i, 0, NUM_TRAIN_INPUT) {
@@ -144,7 +161,7 @@ void train() {
         }
 
         LOG("y_hat");
-        PRINTARR(y_hat, 10, 10);
+        PRINTARR(y_hat, 100, 10);
         LOG("");
 
         FOR(i, 0, INPUT_ELEM_SIZE) {
@@ -154,7 +171,7 @@ void train() {
         }
 
         LOG("weight");
-        PRINTARR(weight, 10, 10);
+        PRINTARR(weight, 100, 10);
         LOG("");
 
         FOR(i, 0, NUM_TRAIN_INPUT) {
@@ -166,12 +183,12 @@ void train() {
         matrix_mul_transposed(x_train, tmp, weight_grad, NUM_TRAIN_INPUT);
 
         LOG("weight_grad");
-        PRINTARR(weight_grad, 10, 10);
+        PRINTARR(weight_grad, 100, 10);
         LOG("");
     }
 }
 
-void test() {
+static void test() {
     LOG("test");
 
     static double tmp[NUM_TEST_INPUT][MAX_LABEL];
@@ -183,11 +200,15 @@ void test() {
 
     FOR(i, 0, NUM_TEST_INPUT) {
         int label = -1;
-        FOR(j, 0, MAX_LABEL)
-            if (tmp[i][j])
+        double mx = 0;
+        FOR(j, 0, MAX_LABEL) {
+            if (mx < tmp[i][j]) {
+                mx = tmp[i][j];
                 label = j;
+            }
+        }
 
-        fprintf(f, "%d,%d\n", i, label);
+        fprintf(f, "%d,%d\n", (int)i, label);
     }
 
     fclose(f);
