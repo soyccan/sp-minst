@@ -1,0 +1,48 @@
+Flat profile:
+
+Each sample counts as 0.01 seconds.
+  %   cumulative   self              self     total           
+ time   seconds   seconds    calls   s/call   s/call  name    
+ 83.60     36.17    36.17        2    18.09    18.09  step4
+ 14.43     42.42     6.24                             matrix_mul_thread
+  1.11     42.90     0.48        1     0.48     0.48  test
+  1.07     43.36     0.46                             main
+  0.02     43.37     0.01        2     0.01     0.01  step2
+  0.00     43.37     0.00        3     0.00     0.00  getsize
+  0.00     43.37     0.00        3     0.00     0.00  read_large
+  0.00     43.37     0.00        2     0.00     0.00  step1
+  0.00     43.37     0.00        2     0.00     0.00  step3
+  0.00     43.37     0.00        1     0.00    36.18  train
+
+ %         the percentage of the total running time of the
+time       program used by this function.
+
+cumulative a running sum of the number of seconds accounted
+ seconds   for by this function and those listed above it.
+
+ self      the number of seconds accounted for by this
+seconds    function alone.  This is the major sort for this
+           listing.
+
+calls      the number of times this function was invoked, if
+           this function is profiled, else blank.
+
+ self      the average number of milliseconds spent in this
+ms/call    function per call, if this function is profiled,
+	   else blank.
+
+ total     the average number of milliseconds spent in this
+ms/call    function and its descendents per call, if this
+	   function is profiled, else blank.
+
+name       the name of the function.  This is the minor sort
+           for this listing. The index shows the location of
+	   the function in the gprof listing. If the index is
+	   in parenthesis it shows where it would appear in
+	   the gprof listing if it were to be printed.
+
+Copyright (C) 2012-2019 Free Software Foundation, Inc.
+
+Copying and distribution of this file, with or without modification,
+are permitted in any medium without royalty provided the copyright
+notice and this notice are preserved.
