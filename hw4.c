@@ -45,21 +45,22 @@ struct {
 
 // training input
 int num_thread;
-int num_iteration = 3;
-double learning_rate = 0.0004;
-double x_train[NUM_TRAIN_INPUT][INPUT_ELEM_SIZE]; // images for training
-double y_train[NUM_TRAIN_INPUT][MAX_LABEL]; // labels for training
+int num_iteration = 2;
+int learning_rate = 1;
+uchar x_train[NUM_TRAIN_INPUT][INPUT_ELEM_SIZE]; // images for training
+uchar y_train[NUM_TRAIN_INPUT][MAX_LABEL]; // labels for training
 
 // testing input
-double x_test[NUM_TEST_INPUT][INPUT_ELEM_SIZE]; // images for testing
+uchar x_test[NUM_TEST_INPUT][INPUT_ELEM_SIZE]; // images for testing
 
 // trained data
-double weight[INPUT_ELEM_SIZE][MAX_LABEL];
-double weight_grad[INPUT_ELEM_SIZE][MAX_LABEL];
-double y_hat[NUM_TRAIN_INPUT][MAX_LABEL]; // predicted label
+float weight[INPUT_ELEM_SIZE][MAX_LABEL];
+float weight_grad[INPUT_ELEM_SIZE][MAX_LABEL];
+float y_hat[NUM_TRAIN_INPUT][MAX_LABEL]; // predicted label
 
 
-static void* matrix_mul_thread(void* ptr) {
+static void* step1_thread(void* ptr) {
+    // step(1)
     size_t idx = ptr;
     size_t start_row = thread_param[idx].start_row;
     size_t end_row = thread_param[idx].end_row;
@@ -79,6 +80,76 @@ static void* matrix_mul_thread(void* ptr) {
     return NULL;
 }
 
+static void step1() {
+    // step (1)
+    size_t num_row_per_thread = NUM_TRAIN_INPUT;
+    if (num_thread > 1)
+        num_row_per_thread /= (num_thread - 1);
+
+    size_t start_row = 0;
+    FOR(i, 0, num_thread) {
+        thread_param[i].start_row = start_row;
+        thread_param[i].end_row = start_row + num_row_per_thread;
+
+        if (thread_param[i].end_row > NUM_TRAIN_INPUT)
+            thread_param[i].end_row = NUM_TRAIN_INPUT;
+
+        pthread_create(&thread[i], NULL, step1_thread, i);
+
+        start_row += num_row_per_thread;
+    }
+//         pthread_exit(NULL); // Note: main theard quits also ?
+    FOR(i, 0, num_thread) {
+        pthread_join(thread[i], NULL);
+    }
+}
+
+static void step2() {
+    // step (2)
+    FOR(i, 0, NUM_TRAIN_INPUT) {
+        double mx = -INFINITY;
+        double sum = 0;
+
+        FOR(j, 0, MAX_LABEL)
+            if (mx < y_hat[i][j])
+                mx = y_hat[i][j];
+
+        FOR(j, 0, MAX_LABEL)
+            sum += expf(y_hat[i][j] - mx);
+
+        FOR(j, 0, MAX_LABEL)
+            y_hat[i][j] = expf(y_hat[i][j] - mx) / sum;
+    }
+}
+
+static void step3() {
+    // step (3)
+    FOR(i, 0, INPUT_ELEM_SIZE) {
+        FOR(j, 0, MAX_LABEL) {
+            weight[i][j] -= learning_rate * weight_grad[i][j];
+        }
+    }
+}
+
+static void* step4_thread(void* ptr) {
+    // step (4)
+    FOR(i, 0, INPUT_ELEM_SIZE) {
+        FOR(j, 0, MAX_LABEL) {
+            weight_grad[i][j] = 0;
+            FOR(k, 0, NUM_TRAIN_INPUT) {
+                weight_grad[i][j] += x_train[k][i] * (y_hat[k][j] - y_train[k][j]);
+            }
+        }
+    }
+    return NULL;
+}
+
+static void step4() {
+    // step (4)
+    pthread_create(&thread[0], NULL, step4_thread, NULL);
+    pthread_join(thread[0], NULL);
+}
+
 static void train() {
     LOG("train");
 
@@ -92,73 +163,25 @@ static void train() {
     FOR(rnd, 0, num_iteration) {
         LOG("train round %d", rnd);
 
-
-        // step (1)
-        size_t num_row_per_thread = NUM_TRAIN_INPUT;
-        if (num_thread > 1)
-            num_row_per_thread /= (num_thread - 1);
-
-        size_t start_row = 0;
-        FOR(i, 0, num_thread) {
-            thread_param[i].start_row = start_row;
-            thread_param[i].end_row = start_row + num_row_per_thread;
-
-            if (thread_param[i].end_row > NUM_TRAIN_INPUT)
-                thread_param[i].end_row = NUM_TRAIN_INPUT;
-
-            pthread_create(&thread[i], NULL, matrix_mul_thread, i);
-
-            start_row += num_row_per_thread;
-        }
-//         pthread_exit(NULL); // Note: main theard quits also ?
-        FOR(i, 0, num_thread) {
-            pthread_join(thread[i], NULL);
-        }
+        step1();
 
         LOG("x_train * weight");
         PRINTARR(y_hat, 100, 10);
         LOG("");
 
-        // step (2)
-        FOR(i, 0, NUM_TRAIN_INPUT) {
-            double mx = -INFINITY;
-            double sum = 0;
-
-            FOR(j, 0, MAX_LABEL)
-                if (mx < y_hat[i][j])
-                    mx = y_hat[i][j];
-
-            FOR(j, 0, MAX_LABEL)
-                sum += exp(y_hat[i][j] - mx);
-
-            FOR(j, 0, MAX_LABEL)
-                y_hat[i][j] = exp(y_hat[i][j] - mx) / sum;
-        }
+        step2();
 
         LOG("y_hat");
         PRINTARR(y_hat, 100, 10);
         LOG("");
 
-        // step (3)
-        FOR(i, 0, INPUT_ELEM_SIZE) {
-            FOR(j, 0, MAX_LABEL) {
-                weight[i][j] -= learning_rate * weight_grad[i][j];
-            }
-        }
+        step3();
 
         LOG("weight");
         PRINTARR(weight, 100, 10);
         LOG("");
 
-        // step (4)
-        FOR(i, 0, INPUT_ELEM_SIZE) {
-            FOR(j, 0, MAX_LABEL) {
-                weight_grad[i][j] = 0;
-                FOR(k, 0, NUM_TRAIN_INPUT) {
-                    weight_grad[i][j] += x_train[k][i] * (y_hat[k][j] - y_train[k][j]);
-                }
-            }
-        }
+        step4();
 
         LOG("weight_grad");
         PRINTARR(weight_grad, 100, 10);
@@ -208,27 +231,27 @@ usage:
         exit(123);
     }
 
-
     num_thread = strtol(argv[4], NULL, MAX_LABEL);
     if (errno != 0 || num_thread > MAX_THREAD)
         goto usage;
 
-    uchar* buf;
 
-    buf = read_large(argv[1]);
+    const uchar* buf;
+
+    buf = open_large_readonly(argv[1]);
     FOR(i, 0, NUM_TRAIN_INPUT) {
         FOR(j, 0, INPUT_ELEM_SIZE) {
             x_train[i][j] = buf[i * INPUT_ELEM_SIZE + j];
         }
     }
 
-    buf = read_large(argv[2]);
+    buf = open_large_readonly(argv[2]);
     FOR(i, 0, NUM_TRAIN_INPUT) {
         assert(buf[i] < MAX_LABEL);
         y_train[i][ buf[i] ] = 1;
     }
 
-    buf = read_large(argv[3]);
+    buf = open_large_readonly(argv[3]);
     FOR(i, 0, NUM_TEST_INPUT) {
         FOR(j, 0, INPUT_ELEM_SIZE) {
             x_test[i][j] = buf[i * INPUT_ELEM_SIZE + j];
