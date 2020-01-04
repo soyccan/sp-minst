@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <math.h>
 #include <pthread.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,7 +26,7 @@
 # define PRINTARR(arr, r, c) \
     for (size_t i = 0; i < r; ++i) {\
         for (size_t j = 0; j < c; ++j) {\
-            fprintf(stderr, "%f ", (float)arr[i][j]);\
+            fprintf(stderr, "%lf ", (double)arr[j][i]);\
         }\
         fprintf(stderr, "\n");\
     }
