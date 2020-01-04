@@ -17,6 +17,7 @@
 
 #ifdef DEBUG
 # define LOG(format, ...) fprintf(stderr, format "\n", ##__VA_ARGS__)
+# define LOGN(format, ...) fprintf(stderr, format, ##__VA_ARGS__)
 
 // guard for syscall error
 # define G(expr) if ((expr) < 0) { perror(#expr); exit(221); }
@@ -24,13 +25,14 @@
 # define PRINTARR(arr, r, c) \
     for (size_t i = 0; i < r; ++i) {\
         for (size_t j = 0; j < c; ++j) {\
-            fprintf(stderr, "%lf ", arr[i][j]);\
+            fprintf(stderr, "%f ", (float)arr[i][j]);\
         }\
         fprintf(stderr, "\n");\
     }
 
 #else
 # define LOG(...)
+# define LOGN(...)
 # define G(expr) (expr)
 # define PRINTARR(...)
 #endif

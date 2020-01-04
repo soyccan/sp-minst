@@ -8,5 +8,8 @@ all: release
 release: $(SRC)
 	$(CC) $(CFLAGS) $(GPROF_FLAG) -D NDEBUG -O3 -o hw4 hw4.c
 
+debugopt: $(SRC)
+	$(CC) $(CFLAGS) $(GPROF_FLAG) -D DEBUG -O3 -g -o hw4 hw4.c
+
 debug: $(SRC)
 	$(CC) $(CFLAGS) $(GPROF_FLAG) -D DEBUG -g -o hw4 hw4.c
