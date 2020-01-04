@@ -6,7 +6,7 @@ SRC=hw4.c
 all: release
 
 release: $(SRC)
-	$(CC) $(CFLAGS) $(GPROF_FLAG) -D NDEBUG -O3 -o hw4 hw4.c
+	$(CC) $(CFLAGS) -D NDEBUG -O3 -o hw4 hw4.c
 
 debugopt: $(SRC)
 	$(CC) $(CFLAGS) $(GPROF_FLAG) -D DEBUG -O3 -g -o hw4 hw4.c

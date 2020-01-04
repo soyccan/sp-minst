@@ -25,17 +25,6 @@ static const uchar* open_large_readonly(const char* filename) {
     return pa;
 }
 
-static uchar* read_large(const char* filename) {
-
-    int fd;
-    G(fd = open(filename, O_RDONLY));
-
-    static uchar buf[47040000];
-    G(read(fd, buf, getsize(fd)));
-
-    return buf;
-}
-
 // thread
 //
 pthread_t thread[MAX_THREAD];
@@ -45,11 +34,10 @@ pthread_t thread[MAX_THREAD];
 // Note: some matrix is stored transposed for cache-friendly
 // (especially in step (4))
 int num_thread;
-int num_iteration = 10;
+int num_iteration = 20;
 double learning_rate = 0.01;
 int learning_rate_grad = 2; // learning rate will be divided
                             // by this each iteration
-double initial_weight = 0;
 double x_train[NUM_TRAIN_INPUT][INPUT_ELEM_SIZE]; // images for training
 double x_train_t[INPUT_ELEM_SIZE][NUM_TRAIN_INPUT]; // transposed
 double y_train_t[MAX_LABEL][NUM_TRAIN_INPUT]; // labels for training
@@ -125,7 +113,20 @@ static void step2() {
         c /= MAX_LABEL;
 
         FOR(j, 0, MAX_LABEL) {
-            y_hat_t[j][i] = exp(y_hat_t[j][i] - c);
+            // debug only
+            assert(-709 <= y_hat_t[j][i] - c && y_hat_t[j][i] - c <= 709);
+
+            if (y_hat_t[j][i] - c < -709)
+                // in case of underflow
+                y_hat_t[j][i] = DBL_MIN;
+
+            else if (y_hat_t[j][i] - c > 709)
+                // in case of overflow
+                y_hat_t[j][i] = 1e306;
+
+            else
+                y_hat_t[j][i] = exp(y_hat_t[j][i] - c);
+
             sum += y_hat_t[j][i];
         }
 
@@ -208,13 +209,6 @@ static void step4() {
 
 static void train() {
     LOG("train");
-
-    // initial weight
-    FOR(j, 0, MAX_LABEL) {
-        FOR(i, 0, INPUT_ELEM_SIZE) {
-            weight_t[j][i] = initial_weight;
-        }
-    }
 
     FOR(rnd, 0, num_iteration) {
         LOG("train round %d", rnd);
