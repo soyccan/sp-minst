@@ -27,6 +27,14 @@
 # define PRINTARR(arr, r, c) \
     for (size_t i = 0; i < r; ++i) {\
         for (size_t j = 0; j < c; ++j) {\
+            fprintf(stderr, "%lf ", (double)arr[i][j]);\
+        }\
+        fprintf(stderr, "\n");\
+    }
+
+# define PRINTARR_T(arr, r, c) \
+    for (size_t i = 0; i < r; ++i) {\
+        for (size_t j = 0; j < c; ++j) {\
             fprintf(stderr, "%lf ", (double)arr[j][i]);\
         }\
         fprintf(stderr, "\n");\
@@ -37,6 +45,7 @@
 # define LOGN(...)
 # define G(expr) (expr)
 # define PRINTARR(...)
+# define PRINTARR_T(...)
 #endif
 
 typedef unsigned char uchar;

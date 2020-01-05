@@ -34,13 +34,13 @@ pthread_t thread[MAX_THREAD];
 // Note: some matrix is stored transposed for cache-friendly
 // (especially in step (4))
 int num_thread;
-int num_iteration = 20;
-double learning_rate = 0.01;
+int num_iteration = 27;
+double learning_rate = 0.001;
 int learning_rate_grad = 2; // learning rate will be divided
                             // by this each iteration
 double x_train[NUM_TRAIN_INPUT][INPUT_ELEM_SIZE]; // images for training
 double x_train_t[INPUT_ELEM_SIZE][NUM_TRAIN_INPUT]; // transposed
-double y_train_t[MAX_LABEL][NUM_TRAIN_INPUT]; // labels for training
+double y_train[NUM_TRAIN_INPUT][MAX_LABEL]; // labels for training
 
 // testing input
 //
@@ -49,11 +49,12 @@ double x_test[NUM_TEST_INPUT][INPUT_ELEM_SIZE]; // images for testing
 // temporary data
 //
 double weight_grad_t[MAX_LABEL][INPUT_ELEM_SIZE];
+double y_diff_t[MAX_LABEL][NUM_TRAIN_INPUT]; // transposed
 
 // training output
 //
-double weight_t[MAX_LABEL][INPUT_ELEM_SIZE];
-double y_hat_t[MAX_LABEL][NUM_TRAIN_INPUT]; // predicted label
+double weight_t[MAX_LABEL][INPUT_ELEM_SIZE]; // transposed
+double y_hat[NUM_TRAIN_INPUT][MAX_LABEL]; // predicted label
 
 
 static void* step1_thread(void* ptr) {
@@ -67,9 +68,9 @@ static void* step1_thread(void* ptr) {
 
     FOR(i, start_row, end_row) {
         FOR(j, 0, MAX_LABEL) {
-            y_hat_t[j][i] = 0;
+            y_hat[i][j] = 0;
             FOR(k, 0, INPUT_ELEM_SIZE) {
-                y_hat_t[j][i] += x_train[i][k] * weight_t[j][k];
+                y_hat[i][j] += x_train[i][k] * weight_t[j][k];
             }
         }
     }
@@ -109,30 +110,30 @@ static void step2() {
 
         // average
         FOR(j, 0, MAX_LABEL)
-            c += y_hat_t[j][i];
+            c += y_hat[i][j];
         c /= MAX_LABEL;
 
         FOR(j, 0, MAX_LABEL) {
             // debug only
-            assert(-709 <= y_hat_t[j][i] - c && y_hat_t[j][i] - c <= 709);
+            assert(-709 <= y_hat[i][j] - c && y_hat[i][j] - c <= 709);
 
-            if (y_hat_t[j][i] - c < -709)
+            if (y_hat[i][j] - c < -709)
                 // in case of underflow
-                y_hat_t[j][i] = DBL_MIN;
+                y_hat[i][j] = DBL_MIN;
 
-            else if (y_hat_t[j][i] - c > 709)
+            else if (y_hat[i][j] - c > 709)
                 // in case of overflow
-                y_hat_t[j][i] = 1e306;
+                y_hat[i][j] = 1e306;
 
             else
-                y_hat_t[j][i] = exp(y_hat_t[j][i] - c);
+                y_hat[i][j] = exp(y_hat[i][j] - c);
 
-            sum += y_hat_t[j][i];
+            sum += y_hat[i][j];
         }
 
         FOR(j, 0, MAX_LABEL) {
-            y_hat_t[j][i] /= sum;
-            assert(y_hat_t[j][i] > -1e-10);
+            y_hat[i][j] /= sum;
+            assert(y_hat[i][j] > -1e-10);
         }
     }
 }
@@ -168,11 +169,17 @@ static void step3() {
 
 static void step4() {
     // step (4)
+    FOR(i, 0, NUM_TRAIN_INPUT) {
+        FOR(j, 0, MAX_LABEL) {
+            y_diff_t[j][i] = y_hat[i][j] - y_train[i][j];
+        }
+    }
+
     FOR(i, 0, INPUT_ELEM_SIZE) {
         FOR(j, 0, MAX_LABEL) {
             weight_grad_t[j][i] = 0;
             FOR(k, 0, NUM_TRAIN_INPUT) {
-                weight_grad_t[j][i] += x_train_t[i][k] * (y_hat_t[j][k] - y_train_t[j][k]);
+                weight_grad_t[j][i] += x_train_t[i][k] * y_diff_t[j][k];
             }
         }
     }
@@ -216,28 +223,29 @@ static void train() {
         step1();
 
         LOG("x_train * weight");
-        PRINTARR(y_hat_t, 100, 10);
+        PRINTARR(y_hat, 100, 10);
         LOG("");
 
         step2();
 
         LOG("y_hat");
-        PRINTARR(y_hat_t, 100, 10);
+        PRINTARR(y_hat, 100, 10);
         LOG("");
 
         step3();
 
         LOG("weight");
-        PRINTARR(weight_t, 100, 10);
+        PRINTARR_T(weight_t, 100, 10);
         LOG("");
 
         step4();
 
         LOG("weight_grad");
-        PRINTARR(weight_grad_t, 100, 10);
+        PRINTARR_T(weight_grad_t, 100, 10);
         LOG("");
 
         learning_rate /= learning_rate_grad;
+        learning_rate *= rnd/8+1;
     }
 }
 
@@ -247,14 +255,14 @@ static void test() {
     // step(1)
     FOR(i, 0, NUM_TEST_INPUT) {
         FOR(j, 0, MAX_LABEL) {
-            y_hat_t[j][i] = 0;
+            y_hat[i][j] = 0;
             FOR(k, 0, INPUT_ELEM_SIZE) {
-                y_hat_t[j][i] += x_test[i][k] * weight_t[j][k];
+                y_hat[i][j] += x_test[i][k] * weight_t[j][k];
             }
         }
     }
-    LOG("test y_hat");
-    PRINTARR(y_hat_t, 100, MAX_LABEL);
+//     LOG("test y_hat");
+//     PRINTARR(y_hat_t, 100, MAX_LABEL);
 
     FILE* f = fopen("result.csv", "w");
     fprintf(f, "id,label\n");
@@ -263,8 +271,8 @@ static void test() {
         int label = -1;
         double mx = 0;
         FOR(j, 0, MAX_LABEL) {
-            if (mx < y_hat_t[j][i]) {
-                mx = y_hat_t[j][i];
+            if (mx < y_hat[i][j]) {
+                mx = y_hat[i][j];
                 label = j;
             }
         }
@@ -303,7 +311,7 @@ usage:
     buf = open_large_readonly(argv[2]);
     FOR(i, 0, NUM_TRAIN_INPUT) {
         assert(buf[i] < MAX_LABEL);
-        y_train_t[ buf[i] ][i] = 1;
+        y_train[i][ buf[i] ] = 1;
     }
 
     buf = open_large_readonly(argv[3]);
